@@ -285,22 +285,20 @@ func (c *Conn) Download(attachment *Attachment) error {
 }
 
 func (c *Conn) SendMsg(to string, msg string) error {
+	msg = strings.Replace(msg, ":", "::", -1)
 	for k, v := range c.hosts {
 		if k == to {
-			msg = strings.Replace(msg, ":", "::", -1)
 			if !v.UTF8 {
 				msg, _ = japanese.ShiftJIS.NewEncoder().String(msg)
 			}
-			c.sendudp(v.host, IpMsgSendMsg, msg)
-			return nil
+			break
 		}
 	}
 	addr, err := net.ResolveUDPAddr("udp", to)
 	if err != nil {
 		return err
 	}
-	c.sendudp(addr, IpMsgSendMsg, msg)
-	return errors.New("address not found")
+	return c.sendudp(addr, 8405280 /*IpMsgSendMsg*/, msg)
 }
 
 func (c *Conn) Closed() bool {
@@ -386,8 +384,9 @@ func (c *Conn) doServe() {
 		}
 		h, ok := c.hosts[from.String()]
 		if !ok {
-			h = &Host{}
+			h = &Host{host: from}
 			c.hosts[from.String()] = h
+
 		}
 		if cmd&IpMsgUtf8Opt != 0 {
 			h.UTF8 = true
