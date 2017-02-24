@@ -118,6 +118,10 @@ func (msg *Msg) Hostname() string {
 	return msg.hostname
 }
 
+func (msg *Msg) From() string {
+	return msg.from.String()
+}
+
 func (msg *Msg) Body() string {
 	return msg.body
 }
@@ -138,7 +142,7 @@ type Conn struct {
 }
 
 func (c *Conn) sendudp(to *net.UDPAddr, cmd int, msg string) error {
-	_, err := c.conn.WriteToUDP([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:\x00%s", ProtocolVersion, time.Now().Unix(), c.username, c.hostname, cmd, msg)), to)
+	_, err := c.conn.WriteToUDP([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%s", ProtocolVersion, time.Now().Unix(), c.username, c.hostname, cmd, msg)), to)
 	return err
 }
 
@@ -291,6 +295,11 @@ func (c *Conn) SendMsg(to string, msg string) error {
 			return nil
 		}
 	}
+	addr, err := net.ResolveUDPAddr("udp", to)
+	if err != nil {
+		return err
+	}
+	c.sendudp(addr, IpMsgSendMsg, msg)
 	return errors.New("address not found")
 }
 
