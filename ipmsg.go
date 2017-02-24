@@ -23,14 +23,20 @@ const (
 )
 
 const (
-	IpMsgBrEntry      = 0x00000001
-	IpMsgBrExit       = 0x00000002
-	IpMsgAnsEntry     = 0x00000003
-	IpMsgBrAbsence    = 0x00000004
-	IpMsgSendMsg      = 0x00000020
-	IpMsgRecvMsg      = 0x00000021
+	IpMsgBrEntry    = 0x00000001
+	IpMsgBrExit     = 0x00000002
+	IpMsgAnsEntry   = 0x00000003
+	IpMsgBrAbsence  = 0x00000004
+	IpMsgSendMsg    = 0x00000020
+	IpMsgRecvMsg    = 0x00000021
+	IpMsgReadMsg    = 0x00000030
+	IpMsgDelMsg     = 0x00000031
+	IpMsgAnsReadMsg = 0x00000032
+	IpMsgGetInfo    = 0x00000040
+	IpMsgSendInfo   = 0x00000041
+
 	IpMsgSendCheckOpt = 0x00000100
-	IpMsgSecretOpt    = 0x00000200
+	IpMsgSecRetOpt    = 0x00000200
 	IpMsgBroadcastOpt = 0x00000400
 	IpMsgMulticastOpt = 0x00000800
 	IpMsgNoPopupOpt   = 0x00001000
@@ -53,8 +59,9 @@ const (
 	IpMsgClipboardOpt  = 0x08000000
 	IpMsgCanFileEncOpt = 0x00001000
 
-	IpMsgGetFileData = 0x00000060
-	IpMsgGetDirFiles = 0x00000062
+	IpMsgGetFileData  = 0x00000060
+	IpMsgReleaseFiles = 0x00000061
+	IpMsgGetDirFiles  = 0x00000062
 
 	IpMsgFileRegular   = 0x00000001
 	IpMsgFileDir       = 0x00000002
@@ -107,6 +114,8 @@ type Msg struct {
 	body        string
 	conn        *Conn
 	from        *net.UDPAddr
+	readCheck   bool
+	opened      bool
 	attachments []*Attachment
 }
 
@@ -122,7 +131,18 @@ func (msg *Msg) From() string {
 	return msg.from.String()
 }
 
+func (msg *Msg) Delete() {
+	if !msg.opened && msg.readCheck {
+		msg.conn.sendudp(msg.from, IpMsgDelMsg, fmt.Sprint(msg.packetID))
+	}
+	msg.body = ""
+}
+
 func (msg *Msg) Body() string {
+	if msg.readCheck {
+		msg.conn.sendudp(msg.from, IpMsgReadMsg, fmt.Sprint(msg.packetID))
+	}
+	msg.opened = true
 	return msg.body
 }
 
@@ -272,8 +292,12 @@ func (c *Conn) download(conn net.Conn, base string, attachment *Attachment) erro
 				mtime = time.Unix(tt, 0)
 			}
 		}
-		os.Chtimes(fname, mtime, mtime)
+		err = os.Chtimes(fname, mtime, mtime)
+		if err != nil {
+			return err
+		}
 	}
+	c.sendudp(attachment.from, IpMsgReleaseFiles, fmt.Sprintf("%d:%d", attachment.PacketID, attachment.ID))
 	return nil
 }
 
@@ -371,6 +395,7 @@ func (c *Conn) doServe() {
 		//IpMsgClipboardOpt|
 		0,
 		c.username)
+
 	defer func() {
 		c.conn.Close()
 		c.quit <- struct{}{}
@@ -418,6 +443,8 @@ func (c *Conn) doServe() {
 			h.Group = group
 		case IpMsgBrExit:
 			delete(c.hosts, from.String())
+		case IpMsgGetInfo:
+			c.sendudp(from, IpMsgSendInfo, "go-ipmsg v0.0.1")
 		case IpMsgSendMsg:
 			dim := bytes.Split(telegram[5], []byte{0})
 			if cmd&IpMsgUtf8Opt == 0 {
@@ -435,6 +462,8 @@ func (c *Conn) doServe() {
 			msg.hostname = from.String()
 			msg.body = string(dim[0])
 			msg.from = from
+			msg.conn = c
+			msg.readCheck = cmd&IpMsgSecRetOpt != 0
 
 			if cmd&IpMsgFileAttachOpt != 0 || cmd&IpMsgClipboardOpt != 0 {
 				for _, fi := range bytes.Split(dim[1], []byte{'\a'}) {
