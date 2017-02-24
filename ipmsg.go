@@ -138,11 +138,17 @@ type Conn struct {
 	broadcast *net.UDPAddr
 	hosts     map[string]*Host
 	recvCb    func(*Msg) error
+	seq       int64
 	Debug     bool
 }
 
+func (c *Conn) packetID() int64 {
+	c.seq++
+	return c.seq
+}
+
 func (c *Conn) sendudp(to *net.UDPAddr, cmd int, msg string) error {
-	_, err := c.conn.WriteToUDP([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%s", ProtocolVersion, time.Now().Unix(), c.username, c.hostname, cmd, msg)), to)
+	_, err := c.conn.WriteToUDP([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%s", ProtocolVersion, c.packetID(), c.username, c.hostname, cmd, msg)), to)
 	return err
 }
 
@@ -160,7 +166,7 @@ func parseAttr(s string) map[int64]string {
 func (c *Conn) download(conn net.Conn, base string, attachment *Attachment) error {
 	switch attachment.Type {
 	case IpMsgFileDir:
-		_, err := conn.Write([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%x:%x", ProtocolVersion, time.Now().Unix(), c.username, c.hostname, IpMsgGetDirFiles, attachment.PacketID, attachment.ID)))
+		_, err := conn.Write([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%x:%x", ProtocolVersion, c.packetID(), c.username, c.hostname, IpMsgGetDirFiles, attachment.PacketID, attachment.ID)))
 		if err != nil {
 			return err
 		}
@@ -248,7 +254,7 @@ func (c *Conn) download(conn net.Conn, base string, attachment *Attachment) erro
 		}
 		defer f.Close()
 
-		_, err = conn.Write([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%x:%x:0", ProtocolVersion, time.Now().Unix(), c.username, c.hostname, IpMsgGetFileData, attachment.PacketID, attachment.ID)))
+		_, err = conn.Write([]byte(fmt.Sprintf("%d:%d:%s:%s:%d:%x:%x:0", ProtocolVersion, c.packetID(), c.username, c.hostname, IpMsgGetFileData, attachment.PacketID, attachment.ID)))
 		if err != nil {
 			return err
 		}
@@ -286,19 +292,22 @@ func (c *Conn) Download(attachment *Attachment) error {
 
 func (c *Conn) SendMsg(to string, msg string) error {
 	msg = strings.Replace(msg, ":", "::", -1)
+
+	utf8 := false
 	for k, v := range c.hosts {
 		if k == to {
-			if !v.UTF8 {
-				msg, _ = japanese.ShiftJIS.NewEncoder().String(msg)
-			}
+			utf8 = v.UTF8
 			break
 		}
+	}
+	if !utf8 {
+		msg, _ = japanese.ShiftJIS.NewEncoder().String(msg)
 	}
 	addr, err := net.ResolveUDPAddr("udp", to)
 	if err != nil {
 		return err
 	}
-	return c.sendudp(addr, 8405280 /*IpMsgSendMsg*/, msg)
+	return c.sendudp(addr, IpMsgSendMsg, msg)
 }
 
 func (c *Conn) Closed() bool {
@@ -346,6 +355,7 @@ func Dial(username string) (*Conn, error) {
 			IP:   net.IPv4bcast,
 			Port: 2425,
 		},
+		seq:   time.Now().Unix(),
 		hosts: make(map[string]*Host),
 	}
 
@@ -388,12 +398,12 @@ func (c *Conn) doServe() {
 			c.hosts[from.String()] = h
 
 		}
-		if cmd&IpMsgUtf8Opt != 0 {
-			h.UTF8 = true
-		}
 
 		switch cmd & 0xff {
 		case IpMsgBrEntry:
+			if cmd&IpMsgUtf8Opt != 0 {
+				h.UTF8 = true
+			}
 			c.sendudp(from, IpMsgAnsEntry, c.username)
 			fallthrough
 		case IpMsgAnsEntry:
@@ -455,7 +465,7 @@ func (c *Conn) doServe() {
 			}
 			c.sendudp(from, IpMsgRecvMsg, string(telegram[1]))
 			if c.recvCb != nil {
-				c.recvCb(&msg)
+				go c.recvCb(&msg)
 			}
 		default:
 		}
