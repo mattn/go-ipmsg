@@ -37,10 +37,8 @@ func main() {
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, os.Interrupt)
 	go func() {
-		for _ = range sc {
-			conn.Close()
-			break
-		}
+		<-sc
+		conn.Close()
 	}()
 
 	scan := bufio.NewScanner(os.Stdin)
