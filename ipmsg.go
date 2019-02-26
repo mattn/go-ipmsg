@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/text/encoding/japanese"
@@ -163,8 +164,7 @@ type Conn struct {
 }
 
 func (c *Conn) packetID() int64 {
-	c.seq++
-	return c.seq
+	return atomic.AddInt64(&c.seq, 1)
 }
 
 func (c *Conn) sendudp(to *net.UDPAddr, cmd int, msg string) error {
