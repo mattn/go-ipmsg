@@ -4,6 +4,7 @@ import (
 	"go/token"
 	"go/types"
 	"log"
+	"strings"
 
 	"github.com/mattn/go-ipmsg"
 )
@@ -15,7 +16,16 @@ func main() {
 	}
 	conn.Debug = true
 	conn.Recv(func(msg *ipmsg.Msg) error {
-		val, err := types.Eval(token.NewFileSet(), types.NewPackage("main", "main"), token.NoPos, msg.Body())
+		body := ""
+		for _, line := range strings.Split(msg.Body(), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, ">") {
+				body = line
+				break
+			}
+		}
+
+		val, err := types.Eval(token.NewFileSet(), types.NewPackage("main", "main"), token.NoPos, body)
 		if err != nil {
 			conn.SendMsg(msg.From(), err.Error())
 		} else if val.Value != nil {

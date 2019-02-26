@@ -220,8 +220,8 @@ func (c *Conn) download(conn net.Conn, base string, attachment *Attachment) erro
 					if fname == "." || fname == ".." {
 						return errors.New("invalid attachment")
 					}
-					p = filepath.Join(p, fname)
-					err := os.MkdirAll(p, 0755)
+					fname = filepath.Join(p, fname)
+					err := os.MkdirAll(fname, 0755)
 					if err != nil {
 						return err
 					}
@@ -301,7 +301,7 @@ func (c *Conn) download(conn net.Conn, base string, attachment *Attachment) erro
 	return nil
 }
 
-func (c *Conn) Download(attachment *Attachment) error {
+func (c *Conn) Download(dir string, attachment *Attachment) error {
 	if attachment == nil {
 		return nil
 	}
@@ -311,7 +311,7 @@ func (c *Conn) Download(attachment *Attachment) error {
 	}
 	defer conn.Close()
 
-	return c.download(conn, ".", attachment)
+	return c.download(conn, dir, attachment)
 }
 
 func (c *Conn) SendMsg(to string, msg string) error {
